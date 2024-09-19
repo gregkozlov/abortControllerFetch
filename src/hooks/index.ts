@@ -1,34 +1,55 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
-function useFetch<T>(url: string) {
+function useFetch<T>(url: string | null) {
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
+  useEffect(() => {
+    if (!url) return;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const signal = controller.signal;
+
+    setLoading(true);
+    setError(null);
+    setData(null);
+
+    const fetchData = async () => {
       try {
-        const response = await fetch(url);
+        const response = await fetch(url, { signal });
         if (!response.ok) {
-          throw new Error("Fetch error");
+          throw new Error(`Error fetching data: ${response.statusText}`);
         }
         const result = await response.json();
         setData(result);
-        setError(null);
       } catch (err) {
-        if (err instanceof Error) {
+        if (err instanceof Error && err.name === "AbortError") {
+          console.log("Fetch aborted");
+        } else if (err instanceof Error) {
           setError(err.message);
         } else {
-          setError("Error occurred");
+          setError("An unknown error occurred");
         }
       } finally {
-        setLoading(false);
+        if (!signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchData();
+
+    return () => {
+      controller.abort();
+    };
   }, [url]);
 
   return { data, loading, error };
